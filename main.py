@@ -82,18 +82,12 @@ def get_users(db: Session = Depends(get_db), current_user: str = Depends(auth.ge
 # Example: GET http://localhost:8000/users/5
 #          Returns: {"id": 5, "name": "Jane", "age": 30, "email": "jane@example.com"}
 # Error: If user ID 999 doesn't exist → 404 "User not found"
-@app.get("/users/{user_id}", response_model=schemas.UserResponse)
-def get_user(user_id: int, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
-    # Try to find the user with the given ID
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    
-    # If no user found, raise an error
+@app.get("/users", response_model=schemas.UserResponse)
+def get_users(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    user = db.query(models.User).filter(models.User.email == current_user).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Return the found user
     return user
-
 
 # ============================================
 # PUT /users/{user_id} - Update an existing user
