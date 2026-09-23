@@ -172,12 +172,93 @@ def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
 
 # groq chat endpoint
 @app.post("/chat", response_model=schemas.ChatResponse)
-def chat(request: schemas.ChatRequest, current_user: str = Depends(auth.get_current_user)):
+def chat(request: schemas.ChatRequest, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
     try:
+        user = db.query(models.User).filter(models.User.email == current_user).first()
+
+        # Create new conversation if no conversation_id provided
+        if request.conversation_id is None:
+            conv = models.Conversation(
+                title=request.message[:50],
+                user_id=user.id
+            )
+            db.add(conv)
+            db.commit()
+            db.refresh(conv)
+            conversation_id = conv.id
+        else:
+            conversation_id = request.conversation_id
+
+        # Save user message
+        user_message = models.Message(
+            conversation_id=conversation_id,
+            role="user",
+            content=request.message
+        )
+        db.add(user_message)
+        db.commit()
+
+        # Get AI response
         response = groq_client.chat.completions.create(
             model="openai/gpt-oss-20b",
             messages=[{"role": "user", "content": request.message}]
         )
-        return {"reply": response.choices[0].message.content}
+        ai_reply = response.choices[0].message.content
+
+        # Save AI message
+        ai_message = models.Message(
+            conversation_id=conversation_id,
+            role="ai",
+            content=ai_reply
+        )
+        db.add(ai_message)
+        db.commit()
+
+        return {"reply": ai_reply, "conversation_id": conversation_id}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Create a new conversation
+@app.post("/conversations", response_model=schemas.ConversationResponse)
+def create_conversation(conv: schemas.ConversationCreate, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    user = db.query(models.User).filter(models.User.email == current_user).first()
+    db_conv = models.Conversation(title=conv.title, user_id=user.id)
+    db.add(db_conv)
+    db.commit()
+    db.refresh(db_conv)
+    return db_conv
+
+
+# Get all conversations for logged in user
+@app.get("/conversations", response_model=list[schemas.ConversationResponse])
+def get_conversations(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    user = db.query(models.User).filter(models.User.email == current_user).first()
+    conversations = db.query(models.Conversation).filter(models.Conversation.user_id == user.id).order_by(models.Conversation.created_at.desc()).all()
+    return conversations
+
+
+# Get a single conversation with all messages
+@app.get("/conversations/{conversation_id}", response_model=schemas.ConversationResponse)
+def get_conversation(conversation_id: int, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    user = db.query(models.User).filter(models.User.email == current_user).first()
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conversation_id,
+        models.Conversation.user_id == user.id
+    ).first()
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv    
+
+@app.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: int, db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+    user = db.query(models.User).filter(models.User.email == current_user).first()
+    conv = db.query(models.Conversation).filter(
+        models.Conversation.id == conversation_id,
+        models.Conversation.user_id == user.id
+    ).first()
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    db.delete(conv)
+    db.commit()
+    return {"message": "Conversation deleted"}
