@@ -72,21 +72,9 @@ def get_users(db: Session = Depends(get_db), current_user: str = Depends(auth.ge
     return users
 
 
-# ============================================
-# GET /users/{user_id} - Get a specific user by ID
-# ============================================
-# Purpose: Fetch details of a single user using their unique ID
-# What it does:
-#   1. Takes a user_id from the URL (like /users/5)
-#   2. Searches the database for that specific user
-#   3. If found, returns their data
-#   4. If not found, returns a 404 error
-# Response: Returns a single user object
-# Example: GET http://localhost:8000/users/5
-#          Returns: {"id": 5, "name": "Jane", "age": 30, "email": "jane@example.com"}
-# Error: If user ID 999 doesn't exist → 404 "User not found"
-@app.get("/users", response_model=schemas.UserResponse)
-def get_users(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
+# Return the signed-in user's profile as a single object.
+@app.get("/users/me", response_model=schemas.UserResponse)
+def get_my_profile(db: Session = Depends(get_db), current_user: str = Depends(auth.get_current_user)):
     user = db.query(models.User).filter(models.User.email == current_user).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
